@@ -1,0 +1,87 @@
+{{- $fullName := .Release.Name -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "service.fullname" . }}-control-plane
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+    app.kubernetes.io/component: control-plane
+spec:
+  replicas: {{ .Values.controlPlane.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "service.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: control-plane
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "service.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: control-plane
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      {{- with .Values.controlPlane.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.controlPlane.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "service.serviceAccountName" . }}
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:latest
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        envFrom:
+          - secretRef:
+              name: {{ $fullName }}-secret
+          - configMapRef:
+              name: {{ $fullName }}-configmap
+          - configMapRef:
+              name: {{ $fullName }}-control-configmap
+        command: ["/bin/sh", "-c", "until nc -zv $KONG_PG_HOST $KONG_PG_PORT -w1; do echo 'waiting for db'; sleep 1; done"]
+      - name: kong-migration-up
+        image: "{{ .Values.controlPlane.image.repository }}:{{ .Values.controlPlane.image.tag }}"
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        envFrom:
+          - secretRef:
+              name: {{ $fullName }}-secret
+          - configMapRef:
+              name: {{ $fullName }}-configmap
+          - configMapRef:
+              name: {{ $fullName }}-control-configmap
+        command: ["/bin/sh", "-c", "kong migrations up && kong migrations finish"]
+      containers:
+      - name: {{ include "service.fullname" . }}-control-plane
+        envFrom:
+          - secretRef:
+              name: {{ $fullName }}-secret
+          - configMapRef:
+              name: {{ $fullName }}-configmap
+          - configMapRef:
+              name: {{ $fullName }}-control-configmap
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.controlPlane.image.repository }}:{{ .Values.controlPlane.image.tag }}"
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: http
+            containerPort: {{ .Values.controlPlane.service.port }}
+            protocol: TCP
+        resources:
+          {{- toYaml .Values.controlPlane.resources | nindent 12 }}
+        {{- with .Values.controlPlane.readinessProbe }}
+        readinessProbe:
+          {{- toYaml . | nindent 12 }}
+        {{- end }}

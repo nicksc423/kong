@@ -1,0 +1,97 @@
+{{- $fullName := .Release.Name -}}
+{{- if .Values.postgres.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "service.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "service.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      {{- with .Values.postgres.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      containers:
+      - name: postgres
+        image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        ports:
+          - name: postgres
+            containerPort: {{ .Values.postgres.service.port }}
+            protocol: TCP
+        env:
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        envFrom:
+          - secretRef:
+              name: {{ $fullName }}-secret
+          - configMapRef:
+              name: {{ $fullName }}-configmap
+        readinessProbe:
+          exec:
+            command: ["sh", "-c", "psql -U $POSTGRES_USER -d $POSTGRES_DB -c 'SELECT
+                1'"]
+          initialDelaySeconds: 15
+          timeoutSeconds: 2
+        lifecycle:
+          postStart:
+            exec:
+              command:
+              - "sh"
+              - "-c"
+              - >
+                until psql -U $POSTGRES_USER -d $POSTGRES_DB -c "select 1" > /dev/null
+                2>&1; do sleep 1; done; psql -U $POSTGRES_USER -d $POSTGRES_DB -tc
+                "SELECT 1 FROM pg_user WHERE usename = '$KONG_PG_USER'" | grep -q
+                1 || psql -U $POSTGRES_USER -d $POSTGRES_DB -c "CREATE ROLE $KONG_PG_USER
+                LOGIN PASSWORD '$KONG_PG_PASSWORD'"; echo "SELECT 'CREATE DATABASE
+                $KONG_PG_DATABASE OWNER $KONG_PG_USER' WHERE NOT EXISTS (SELECT FROM
+                pg_database WHERE datname = '$KONG_PG_DATABASE')\gexec" | psql -U
+                $POSTGRES_USER -d $POSTGRES_DB
+        resources:
+          {{- toYaml .Values.postgres.resources | nindent 12 }}
+        volumeMounts:
+        - name: pg-data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: pg-data
+        persistentVolumeClaim:
+          claimName: pg-data-pvc
+          readOnly: false
+---
+# At the moment this is using a managed-standard because it is in Dev
+# For prod we should most likely use managed-standard-retain
+# because it contains all our API Keys/Auth info
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pg-data-pvc
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3Gi
+  storageClassName: 'managed-standard'
+{{- end }}

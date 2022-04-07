@@ -1,0 +1,29 @@
+{{- if .Values.ingressPlane.autoscaling.enabled }}
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "service.fullname" . }}-ingress-hpa
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-plane
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "service.fullname" . }}-ingress-plane
+  minReplicas: {{ .Values.ingressPlane.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.ingressPlane.autoscaling.maxReplicas }}
+  metrics:
+  {{- if .Values.ingressPlane.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        targetAverageUtilization: {{ .Values.ingressPlane.autoscaling.targetCPUUtilizationPercentage }}
+  {{- end }}
+  {{- if .Values.ingressPlane.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        targetAverageUtilization: {{ .Values.ingressPlane.autoscaling.targetMemoryUtilizationPercentage }}
+  {{- end }}
+{{- end }}

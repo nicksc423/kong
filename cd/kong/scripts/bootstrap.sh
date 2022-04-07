@@ -1,0 +1,4 @@
+until nc -zv $KONG_CONTROL_PLANE_SERVICE_HOST $KONG_CONTROL_PLANE_SERVICE_PORT -w1; do echo 'waiting for kong'; sleep 1; done;
+curl -X POST "http://"$KONG_CONTROL_PLANE_SERVICE_HOST":$KONG_CONTROL_PLANE_SERVICE_PORT/plugins" --data "name=zipkin" --data "config.http_endpoint=http://jaeger-collector-headless.observability:9411/api/v2/spans" --data "config.sample_ratio=0.001" --data "config.include_credential=true" --data "config.traceid_byte_count=16" --data "config.header_type=preserve" --data "config.default_header_type=jaeger" --data "config.tags_header=Zipkin-Tags"
+curl -X POST "http://"$KONG_CONTROL_PLANE_SERVICE_HOST":$KONG_CONTROL_PLANE_SERVICE_PORT/routes" --data name=health --data paths[]=/health --data methods=GET;
+curl -X POST "http://"$KONG_CONTROL_PLANE_SERVICE_HOST":$KONG_CONTROL_PLANE_SERVICE_PORT/routes/health/plugins" --data "name=request-termination" --data "config.status_code=200" --data "config.message=healthy"

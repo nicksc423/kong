@@ -1,0 +1,49 @@
+{{- $fullName := .Release.Name -}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ $fullName }}-bootstrap
+  labels:
+    {{- include "service.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: bootstrap
+  annotations:
+    checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: OnFailure
+  initContainers:
+    - name: wait-for-postgres
+      image: busybox:latest
+      imagePullPolicy: IfNotPresent
+      command: ["/bin/sh", "-c", "until nc -zv $KONG_PG_HOST $KONG_PG_PORT -w1; do echo 'waiting for db'; sleep 1; done"]
+      securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+      envFrom:
+        - secretRef:
+            name: {{ $fullName }}-secret
+        - configMapRef:
+            name: {{ $fullName }}-configmap
+  containers:
+    - name: kong-migration-bootstrap
+      image: kong:2.2.1-alpine
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 12 }}
+      command: ["kong", "migrations", "bootstrap"]
+      envFrom:
+        - secretRef:
+            name: {{ $fullName }}-secret
+        - configMapRef:
+            name: {{ $fullName }}-configmap
+    - name: health-bootstrap
+      image: byrnedo/alpine-curl
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 12 }}
+      envFrom:
+        - secretRef:
+            name: {{ $fullName }}-secret
+        - configMapRef:
+            name: {{ $fullName }}-configmap
+      command: ["/bin/sh", "-c", {{ .Files.Get "scripts/bootstrap.sh" | quote }} ]

@@ -1,0 +1,177 @@
+imagePullSecrets: []
+nameOverride: "kong"
+fullnameOverride: "kong"
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "kong"
+
+securityContext:
+  capabilities:
+    drop: [ "CAP_NET_RAW" ]
+  allowPrivilegeEscalation: false
+  privileged: false
+
+configmap:
+  KONG_PG_DATABASE: kong
+  KONG_PG_USER: kong
+  KONG_PG_HOST: postgres.app.svc
+  POSTGRES_DB: postgres
+  POSTGRES_USER: postgres
+
+secrets:
+  KONG_PG_PASSWORD: password
+  POSTGRES_PASSWORD: password
+
+controlPlane:
+  replicaCount: 1
+  image:
+    repository: kong
+    pullPolicy: IfNotPresent
+    tag: 2.2.1-alpine
+
+  configmap:
+    KONG_PG_SSL: "false"
+    KONG_PG_PORT: "5432"
+    KONG_LOG_LEVEL: "notice"
+    KONG_ADMIN_ACCESS_LOG: "/dev/stdout"
+    KONG_PROXY_ERROR_LOG: "/dev/stderr"
+    KONG_ADMIN_ERROR_LOG: "/dev/stderr"
+    KONG_ADMIN_LISTEN: "0.0.0.0:8001,0.0.0.0:8444 ssl"
+    KONG_PROXY_LISTEN: "off"
+    KONG_NGINX_WORKER_PROCESSES: "1"
+
+  podAnnotations:
+    k8s.konghq.com/sidecar-inject: "false"
+    prometheus.io/port: "8001"
+    prometheus.io/scrape: "true"
+    prometheus.io/path: /metrics
+
+  service:
+    type: ClusterIP
+    port: 8001
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 128Mi
+    limits:
+      memory: 128Mi
+
+  readinessProbe:
+    failureThreshold: 3
+    httpGet:
+      path: /status
+      port: 8001
+      scheme: HTTP
+    periodSeconds: 10
+    successThreshold: 1
+    timeoutSeconds: 1
+
+ingressPlane:
+  image:
+    repository: kong
+    pullPolicy: IfNotPresent
+    tag: 2.2.1-alpine
+
+  configmap:
+    KONG_PG_SSL: "false"
+    KONG_PG_PORT: "5432"
+    KONG_LOG_LEVEL: "notice"
+    KONG_ADMIN_ACCESS_LOG: "/dev/stdout"
+    KONG_PROXY_ACCESS_LOG: "/dev/stderr"
+    KONG_PROXY_ERROR_LOG: "/dev/stderr"
+    KONG_ADMIN_ERROR_LOG: "/dev/stderr"
+    KONG_ADMIN_LISTEN: "off"
+    KONG_PROXY_LISTEN: "0.0.0.0:8000,0.0.0.0:8443 ssl"
+    KONG_NGINX_WORKER_PROCESSES: "1"
+
+  host: api.app.dev.company.net
+
+  podAnnotations:
+    linkerd.io/inject: enabled
+    config.linkerd.io/proxy-cpu-limit: "500m"
+    config.linkerd.io/proxy-cpu-request: "50m"
+    config.linkerd.io/proxy-memory-limit: 512Mi
+    config.linkerd.io/proxy-memory-request: 128Mi
+    k8s.konghq.com/sidecar-inject: "false"
+
+  affinity:
+    podAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 30
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+              - courier-service
+            - key: app.kubernetes.io/component
+              operator: In
+              values:
+              - app
+          topologyKey: "kubernetes.io/hostname"
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 70
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+              - kong
+            - key: app.kubernetes.io/component
+              operator: In
+              values:
+              - ingress-plane
+          topologyKey: "kubernetes.io/hostname"
+
+  service:
+    type: ClusterIP
+    port: 8000
+
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+
+  resources:
+    requests:
+      cpu: 128m
+      memory: 128Mi
+
+  readinessProbe:
+    exec:
+      command:
+      - kong
+      - health
+    initialDelaySeconds: 3
+    periodSeconds: 10
+
+postgres:
+  enabled: true
+
+  podAnnotations:
+    linkerd.io/inject: enabled
+    config.linkerd.io/proxy-cpu-limit: "5m"
+    config.linkerd.io/proxy-cpu-request: "1m"
+    config.linkerd.io/proxy-memory-limit: 50Mi
+    config.linkerd.io/proxy-memory-request: 10mi
+
+  image:
+    repository: postgres
+    pullPolicy: IfNotPresent
+    tag: 9.6.17-alpine
+
+  service:
+    port: 5432
+
+  resources:
+    requests:
+      cpu: 4m
+      memory: 50Mi

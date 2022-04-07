@@ -1,0 +1,41 @@
+stages:
+    - deploy
+
+.deploy-base:
+    stage: deploy
+    image:
+      name: alpine/helm:3.5.2
+      entrypoint: [""]
+    variables:
+      NAMESPACE: app
+      SERVICE_NAME: "kong"
+      CHART_PATH: "cd/kong"
+    before_script:
+      - mkdir .kube
+      - echo "$KUBECONFIG" > .kube/config
+      - chmod 600 .kube/config
+      - echo "$HELM_VALUES" > $CHART_PATH/values.yaml
+    script:
+        - helm upgrade -i $SERVICE_NAME -f $CHART_PATH/values.yaml $CHART_PATH -n $NAMESPACE --kubeconfig=".kube/config"
+    when: manual
+
+Deploy Dev:
+  extends: .deploy-base
+  tags:
+    - docker
+  environment:
+    name: development
+
+Deploy Staging:
+  extends: .deploy-base
+  tags:
+    - docker
+  environment:
+    name: staging
+
+Deploy Prod:
+  extends: .deploy-base
+  tags:
+    - docker
+  environment:
+    name: prod

@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "service.fullname" . }}-ingress-plane
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-plane
+spec:
+  type: {{ .Values.ingressPlane.service.type }}
+  ports:
+    - port: {{ .Values.ingressPlane.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 9542
+      targetPort: kong-metrics
+      protocol: TCP
+      name: kong-metrics
+  selector:
+    {{- include "service.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-plane

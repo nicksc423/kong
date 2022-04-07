@@ -1,0 +1,32 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kong-ingress-plane
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-plane
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "service.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ingress-plane
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: nginx-ingress
+      podSelector:
+        matchExpressions:
+        - key: app
+          operator: In
+          values:
+          - nginx-ingress
+        - key: app.kubernetes.io/component
+          operator: In
+          values:
+          - controller
+    ports:
+    - protocol: TCP
+      port: {{ .Values.ingressPlane.service.port }}

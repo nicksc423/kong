@@ -1,0 +1,13 @@
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "service.fullname" . }}-ingress-pdb
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-plane
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "service.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ingress-plane

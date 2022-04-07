@@ -1,0 +1,94 @@
+{{- $fullName := .Release.Name -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "service.fullname" . }}-ingress-plane
+  labels:
+    {{- include "service.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-plane
+    component: ingress-plane
+spec:
+  {{- if not .Values.ingressPlane.autoscaling.enabled }}
+  replicas: {{ .Values.ingressPlane.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "service.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: ingress-plane
+      component: ingress-plane
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "service.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: ingress-plane
+        component: ingress-plane
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      {{- with .Values.ingressPlane.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.ingressPlane.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "service.serviceAccountName" . }}
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:latest
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        envFrom:
+          - secretRef:
+              name: {{ $fullName }}-secret
+          - configMapRef:
+              name: {{ $fullName }}-configmap
+          - configMapRef:
+              name: {{ $fullName }}-ingress-configmap
+        command: ["/bin/sh", "-c", "until nc -zv $KONG_PG_HOST $KONG_PG_PORT -w1; do echo 'waiting for db'; sleep 1; done"]
+      containers:
+      - name: {{ include "service.fullname" . }}-ingress-plane
+        envFrom:
+          - secretRef:
+              name: {{ $fullName }}-secret
+          - configMapRef:
+              name: {{ $fullName }}-configmap
+          - configMapRef:
+              name: {{ $fullName }}-ingress-configmap
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.ingressPlane.image.repository }}:{{ .Values.ingressPlane.image.tag }}"
+        imagePullPolicy: IfNotPresent
+        ports:
+          - name: http
+            containerPort: {{ .Values.ingressPlane.service.port }}
+            protocol: TCP
+          - name: kong-metrics
+            containerPort: 9542
+            protocol: TCP
+        volumeMounts:
+        - name: kong-metrics
+          mountPath: /etc/metrics-server.kong.conf
+          subPath: metrics-server.kong.conf
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5; /usr/local/bin/kong quit -t 20; while pgrep kong; do sleep 1; done"]
+        resources:
+          {{- toYaml .Values.ingressPlane.resources | nindent 12 }}
+        {{- with .Values.ingressPlane.readinessProbe }}
+        readinessProbe:
+          {{- toYaml . | nindent 12 }}
+        {{- end }}
+      volumes:
+        - name: kong-metrics
+          configMap:
+            name: {{ $fullName }}-nginx-directive
